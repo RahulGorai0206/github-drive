@@ -2,6 +2,7 @@ import { PassThrough } from 'stream';
 import http from 'http';
 import { getChunks, getNode } from './database';
 import { CHUNK_SIZE } from './chunker';
+import { getToken } from './auth';
 import type { PhysicalChunk, VirtualNode } from '../types';
 
 let streamServer: http.Server | null = null;
@@ -18,8 +19,13 @@ export function startStreamServer(): Promise<number> {
         await handleStreamRequest(req, res);
       } catch (err) {
         console.error('Stream error:', err);
-        res.writeHead(500);
-        res.end('Internal Server Error');
+        if (!res.headersSent) {
+          res.writeHead(500);
+          res.end('Internal Server Error');
+        } else {
+          // Headers already sent, so just end the connection
+          res.end();
+        }
       }
     });
 
@@ -218,14 +224,41 @@ async function fetchAndPipe(
   passthrough: PassThrough,
   keepOpen: boolean
 ): Promise<void> {
-  const response = await fetch(url, {
-    headers: {
-      'Range': `bytes=${localStart}-${localEnd}`,
-    },
-  });
+  let response: Response | null = null;
+  let attempts = 0;
+  const maxAttempts = 5;
+  const delayMs = 2000;
 
-  if (!response.ok && response.status !== 206) {
-    throw new Error(`Failed to fetch chunk: ${response.status}`);
+  const token = getToken();
+  const headers: Record<string, string> = {
+    'Range': `bytes=${localStart}-${localEnd}`,
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  while (attempts < maxAttempts) {
+    attempts++;
+    response = await fetch(url, {
+      headers,
+    });
+
+    if (response.ok || response.status === 206) {
+      break;
+    }
+
+    if (response.status === 404 && attempts < maxAttempts) {
+      console.log(`[Stream] 404 for ${url}. Attempt ${attempts}/${maxAttempts}. Waiting ${delayMs}ms for CDN propagation...`);
+      await new Promise(r => setTimeout(r, delayMs));
+      continue;
+    }
+
+    throw new Error(`Failed to fetch chunk: ${response.status} at ${url}`);
+  }
+
+  if (!response || (!response.ok && response.status !== 206)) {
+    throw new Error(`Failed to fetch chunk after ${maxAttempts} attempts: ${response?.status}`);
   }
 
   const reader = response.body?.getReader();
