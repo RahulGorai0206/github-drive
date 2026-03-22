@@ -91,13 +91,30 @@ function isTextFile(node: VirtualNode): boolean {
   const mime = node.mime_type || '';
   const name = node.logical_name.toLowerCase();
   
-  if (mime.startsWith('text/') || mime.includes('json') || mime.includes('xml') || mime.includes('javascript') || mime.includes('typescript')) {
+  // Explicitly exclude binary/document formats that might have "xml" or "text" in mime
+  if (
+    mime.includes('officedocument') || 
+    mime.includes('ms-word') || 
+    mime.includes('ms-excel') || 
+    mime.includes('ms-powerpoint') ||
+    mime.includes('pdf') ||
+    mime.includes('rtf')
+  ) {
+    return false;
+  }
+
+  if (mime.startsWith('text/') || mime.includes('json') || mime.includes('javascript') || mime.includes('typescript')) {
     return true;
   }
   
-  // Also check popular extensions if OS mapping failed
-  const exts = ['.txt', '.md', '.json', '.js', '.ts', '.jsx', '.tsx', '.css', '.html', '.py', '.rb', '.java', '.go', '.rs', '.c', '.cpp', '.h', '.sh', '.yaml', '.yml', '.env'];
-  return exts.some(ext => name.endsWith(ext));
+  // Only allow actual source code/plain text extensions
+  const textExts = [
+    '.txt', '.md', '.json', '.js', '.ts', '.jsx', '.tsx', '.css', '.html', 
+    '.py', '.rb', '.java', '.go', '.rs', '.c', '.cpp', '.h', '.hpp', 
+    '.sh', '.yaml', '.yml', '.env', '.sql', '.xml', '.svg', '.ini', '.conf'
+  ];
+  
+  return textExts.some(ext => name.endsWith(ext));
 }
 
 interface FileItemMenuProps {
