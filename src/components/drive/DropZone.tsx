@@ -10,7 +10,7 @@ interface DropZoneProps {
 }
 
 export function DropZone({ children }: DropZoneProps) {
-  const { uploadFiles } = useDrive();
+  const { uploadFiles, currentDirId } = useDrive();
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = React.useRef(0);
 
@@ -48,10 +48,10 @@ export function DropZone({ children }: DropZoneProps) {
       // In Electron, File objects have a .path property
       const filePaths = Array.from(files).map((f: File & { path?: string }) => f.path).filter(Boolean) as string[];
       if (filePaths.length > 0) {
-        await uploadFiles(filePaths);
+        await uploadFiles(filePaths, currentDirId);
       }
     }
-  }, [uploadFiles]);
+  }, [uploadFiles, currentDirId]);
 
   return (
     <div

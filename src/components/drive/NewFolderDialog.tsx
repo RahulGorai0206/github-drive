@@ -20,15 +20,16 @@ interface NewFolderDialogProps {
 }
 
 export function NewFolderDialog({ open, onOpenChange }: NewFolderDialogProps) {
-  const { createFolder } = useDrive();
+  const { createFolder, currentDirId } = useDrive();
   const [name, setName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
   const handleCreate = async () => {
-    if (!name.trim()) return;
+    if (!name.trim() || isCreating) return;
+
     setIsCreating(true);
     try {
-      await createFolder(name.trim());
+      await createFolder(name.trim(), currentDirId);
       setName('');
       onOpenChange(false);
     } catch (err) {
