@@ -4,7 +4,8 @@ import React, { useState, useCallback } from 'react';
 import { useDrive } from '@/contexts/DriveContext';
 import { HardDrive, FolderPlus, Upload, Settings, LogOut, LogIn, User, Cloud, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 interface SidebarProps {
   onOpenSettings: () => void;
@@ -81,6 +82,10 @@ export function Sidebar({ onOpenSettings, onOpenAuth, collapsed, onToggleCollaps
             <span className="text-sm text-muted-foreground truncate">{authStatus.username}</span>
           </div>
         )}
+
+        <TooltipProvider>
+          <ThemeToggle collapsed={collapsed} />
+        </TooltipProvider>
 
         <Tooltip>
           <TooltipTrigger
