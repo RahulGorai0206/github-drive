@@ -15,7 +15,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onOpenSettings, onOpenAuth, collapsed, onToggleCollapse }: SidebarProps) {
-  const { navigateTo, openFileDialog, authStatus } = useDrive();
+  const { navigateTo, openFileDialog, uploadFolder, currentDirId, authStatus } = useDrive();
 
   const handleLogout = useCallback(async () => {
     if (!window.electronAPI) return;
@@ -50,6 +50,17 @@ export function Sidebar({ onOpenSettings, onOpenAuth, collapsed, onToggleCollaps
             {!collapsed && <span>My Drive</span>}
           </TooltipTrigger>
           {collapsed && <TooltipContent side="right">My Drive</TooltipContent>}
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger
+            onClick={() => uploadFolder(currentDirId)}
+            className={`flex items-center gap-3 rounded-md ${collapsed ? 'px-3' : 'px-4'} h-10 hover:bg-sidebar-accent text-sm cursor-pointer w-full text-left`}
+          >
+            <FolderPlus className="h-4 w-4 shrink-0 text-muted-foreground" />
+            {!collapsed && <span>Upload Folder</span>}
+          </TooltipTrigger>
+          {collapsed && <TooltipContent side="right">Upload Folder</TooltipContent>}
         </Tooltip>
 
         <Tooltip>

@@ -27,8 +27,9 @@ interface DriveContextValue {
   refresh: () => Promise<void>;
 
   // Actions
-  createFolder: (name: string) => Promise<void>;
-  uploadFiles: (filePaths: string[]) => Promise<void>;
+  createFolder: (name: string, parentId: string | null) => Promise<VirtualNode>;
+  uploadFiles: (filePaths: string[], parentId: string | null) => Promise<void>;
+  uploadFolder: (parentId: string | null) => Promise<void>;
   deleteNode: (nodeId: string) => Promise<void>;
   renameNode: (nodeId: string, newName: string) => Promise<void>;
   downloadFile: (nodeId: string) => Promise<void>;
@@ -185,21 +186,32 @@ export function DriveProvider({ children: childrenProp }: { children: React.Reac
     }
   }, [currentDirId, loadChildren]);
 
-  const createFolder = useCallback(async (name: string) => {
-    if (!isElectron()) return;
-    await window.electronAPI.createFolder(name, currentDirId);
+  const createFolder = useCallback(async (name: string, parentId: string | null) => {
+    if (!isElectron()) return Promise.reject('Not in Electron environment');
+    const newNode = await window.electronAPI.createFolder(name, parentId);
     await refresh();
-  }, [currentDirId, refresh]);
+    return newNode;
+  }, [refresh]);
 
-  const uploadFiles = useCallback(async (filePaths: string[]) => {
+  const uploadFiles = useCallback(async (filePaths: string[], parentId: string | null) => {
     if (!isElectron()) return;
     try {
-      await window.electronAPI.uploadFiles(filePaths, currentDirId);
+      await window.electronAPI.uploadFiles(filePaths, parentId);
       await refresh();
     } catch (err) {
       console.error('Upload failed:', err);
     }
-  }, [currentDirId, refresh]);
+  }, [refresh]);
+
+  const uploadFolder = useCallback(async (parentId: string | null) => {
+    if (!isElectron()) return;
+    try {
+      await window.electronAPI.uploadFolder(parentId);
+      await refresh();
+    } catch (err) {
+      console.error('Folder upload failed:', err);
+    }
+  }, [refresh]);
 
   const deleteNodeAction = useCallback(async (nodeId: string) => {
     if (!isElectron()) return;
@@ -246,9 +258,9 @@ export function DriveProvider({ children: childrenProp }: { children: React.Reac
     if (!isElectron()) return;
     const filePaths = await window.electronAPI.openFileDialog();
     if (filePaths.length > 0) {
-      await uploadFiles(filePaths);
+      await uploadFiles(filePaths, currentDirId);
     }
-  }, [uploadFiles]);
+  }, [uploadFiles, currentDirId]);
 
   const cancelUpload = useCallback(async (taskId: string) => {
     if (!isElectron()) return;
@@ -301,6 +313,7 @@ export function DriveProvider({ children: childrenProp }: { children: React.Reac
     refresh,
     createFolder,
     uploadFiles,
+    uploadFolder,
     deleteNode: deleteNodeAction,
     renameNode,
     downloadFile,

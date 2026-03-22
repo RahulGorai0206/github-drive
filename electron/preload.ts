@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getChildren: (parentId: string | null) => ipcRenderer.invoke('drive:get-children', parentId),
   getNode: (nodeId: string) => ipcRenderer.invoke('drive:get-node', nodeId),
   uploadFiles: (filePaths: string[], parentId: string | null) => ipcRenderer.invoke('drive:upload-files', filePaths, parentId),
+  uploadFolder: (parentId: string | null) => ipcRenderer.invoke('drive:upload-folder', parentId),
   createFolder: (name: string, parentId: string | null) => ipcRenderer.invoke('drive:create-folder', name, parentId),
   deleteNode: (nodeId: string) => ipcRenderer.invoke('drive:delete-node', nodeId),
   downloadFile: (nodeId: string) => ipcRenderer.invoke('drive:download-file', nodeId),

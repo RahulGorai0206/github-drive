@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { initDatabase, getChildren, getNode, insertNode, deleteNode, getPath, updateNode, getChunks, getSetting, setSetting, searchNodes } from './services/database';
+import { initDatabase, getChildren, getNode, insertNode, deleteNode, getPath, updateNode, getChunks, getSetting, setSetting, searchNodes, getDescendantFiles } from './services/database';
 import { initAuth, startDeviceFlow, pollForToken, getAuthStatus, getToken, logout } from './services/auth';
 import { needsChunking, calculateChunks, readChunkAsBase64, computeSHA256, getMimeType, CHUNK_SIZE, computeSHA256FromBuffer, readChunk } from './services/chunker';
 import { atomicUpload, deleteFromRepo, checkRepo } from './services/github';
@@ -95,21 +95,27 @@ function registerIpcHandlers(): void {
     const node = getNode(nodeId);
     if (!node) throw new Error('Node not found');
 
-    // If it's a file, also delete from GitHub
-    if (node.entity_type === 'FILE') {
-      const chunks = getChunks(nodeId);
-      const owner = getSetting('owner') || '';
-      const repo = getSetting('repo') || '';
-      const branch = getSetting('branch') || 'main';
+    const owner = getSetting('owner') || '';
+    const repo = getSetting('repo') || '';
+    const branch = getSetting('branch') || 'main';
 
-      if (chunks.length > 0 && owner && repo) {
+    if (owner && repo) {
+      const filesToDelete = node.entity_type === 'FILE' ? [node] : getDescendantFiles(nodeId);
+      const allFilePaths: string[] = [];
+
+      for (const file of filesToDelete) {
+        const chunks = getChunks(file.node_id);
+        const paths = chunks.map(c => {
+          if (!c.raw_url) return null;
+          const parts = c.raw_url.split(`${branch}/`);
+          return parts.length > 1 ? parts[1] : null;
+        }).filter(Boolean) as string[];
+        allFilePaths.push(...paths);
+      }
+
+      if (allFilePaths.length > 0) {
         try {
-          const filePaths = chunks.map(c => {
-            if (!c.raw_url) return null;
-            const parts = c.raw_url.split(`${branch}/`);
-            return parts.length > 1 ? parts[1] : null;
-          }).filter(Boolean) as string[];
-          await deleteFromRepo(owner, repo, branch, filePaths, `Deleted ${node.logical_name}`);
+          await deleteFromRepo(owner, repo, branch, allFilePaths, `Deleted ${node.logical_name} ${node.entity_type === 'DIRECTORY' ? 'and its contents' : ''}`);
         } catch (err) {
           console.error('Failed to delete from GitHub:', err);
         }
@@ -123,7 +129,7 @@ function registerIpcHandlers(): void {
     canceledUploads.add(taskId);
   });
 
-  ipcMain.handle('drive:upload-files', async (event, filePaths: string[], parentId: string | null) => {
+  async function uploadSingleFile(filePath: string, parentId: string | null) {
     const owner = getSetting('owner') || '';
     const repo = getSetting('repo') || '';
     const branch = getSetting('branch') || 'main';
@@ -131,151 +137,178 @@ function registerIpcHandlers(): void {
     if (!owner || !repo) throw new Error('Repository not configured. Go to Settings.');
     if (!getToken()) throw new Error('Not authenticated. Please sign in.');
 
-    for (const filePath of filePaths) {
-      const fileName = path.basename(filePath);
-      const stats = fs.statSync(filePath);
-      const mimeType = getMimeType(filePath);
+    const fileName = path.basename(filePath);
+    const stats = fs.statSync(filePath);
+    const mimeType = getMimeType(filePath);
 
-      const uploadTask: UploadTask = {
-        id: `upload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        fileName,
-        totalSize: stats.size,
-        chunksTotal: 1,
-        chunksCompleted: 0,
-        status: 'pending',
-        progress: 0,
-      };
+    const uploadTask: UploadTask = {
+      id: `upload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      fileName,
+      totalSize: stats.size,
+      chunksTotal: 1,
+      chunksCompleted: 0,
+      status: 'pending',
+      progress: 0,
+    };
 
-      const sendProgress = () => {
-        mainWindow?.webContents.send('upload:progress', uploadTask);
-      };
+    const sendProgress = () => {
+      mainWindow?.webContents.send('upload:progress', uploadTask);
+    };
 
-      try {
-        const { findFileNode, upsertNodeWithChunks } = await import('./services/database');
-        const existingNode = findFileNode(parentId, fileName);
-        const nodeId = existingNode ? existingNode.node_id : crypto.randomUUID();
+    try {
+      const { findFileNode, upsertNodeWithChunks } = await import('./services/database');
+      const existingNode = findFileNode(parentId, fileName);
+      const nodeId = existingNode ? existingNode.node_id : crypto.randomUUID();
 
-        if (needsChunking(filePath)) {
-          // Large file: chunk and upload atomically
-          const chunkInfos = calculateChunks(filePath);
-          uploadTask.chunksTotal = chunkInfos.length;
-          uploadTask.status = 'chunking';
-          sendProgress();
-
-          uploadTask.status = 'uploading';
-          sendProgress();
-
-          let completed = 0;
-          const lazyChunks = chunkInfos.map((chunkInfo, idx) => ({
-            fileName: `${nodeId}_${chunkInfo.fileName}`,
-            size: chunkInfo.size,
-            read: async () => {
-              const buffer = await readChunk(filePath, chunkInfo);
-              return {
-                base64Content: buffer.toString('base64'),
-                sha256: computeSHA256FromBuffer(buffer)
-              };
-            }
-          }));
-
-          console.log(`\n[Process] Starting sequential Multi-Chunk Upload for ${fileName} (${chunkInfos.length} chunks)...`);
-
-          // Atomic upload to GitHub with real-time stream execution
-          const results = await atomicUpload(
-            owner, repo, branch,
-            'storage/',
-            lazyChunks,
-            `Upload: ${fileName}`,
-            () => {
-              completed++;
-              uploadTask.chunksCompleted = completed;
-              uploadTask.progress = Math.round((completed / uploadTask.chunksTotal) * 100);
-              sendProgress();
-            },
-            () => {
-              const cancelled = canceledUploads.has(uploadTask.id);
-              if (cancelled) console.log(`[Process] 🛑 Aborting pipeline since upload was actively cancelled by user!`);
-              return cancelled;
-            }
-          );
-
-          uploadTask.status = 'committing';
-          sendProgress();
-
-          // Store in local database
-          console.log(`[Process] 💾 Writing ${chunkInfos.length} chunks to SQLite Database...`);
-          upsertNodeWithChunks(
-            nodeId,
-            parentId,
-            fileName,
-            stats.size,
-            mimeType,
-            results.map((r, i) => ({
-              sequenceIndex: i,
-              chunkSize: lazyChunks[i].size,
-              gitBlobSha: r.blobSha,
-              rawUrl: r.rawUrl,
-              sha256Hash: r.sha256Hash || '',
-            }))
-          );
-        } else {
-          // Small file: direct upload
-          uploadTask.status = 'uploading';
-          sendProgress();
-
-          const buffer = fs.readFileSync(filePath);
-          const base64 = buffer.toString('base64');
-          const sha256 = computeSHA256FromBuffer(buffer);
-
-          console.log(`\n[Process] Starting single-chunk Upload for ${fileName}...`);
-
-          const results = await atomicUpload(
-            owner, repo, branch,
-            'storage/',
-            [{ fileName: `${nodeId}_${fileName}`, base64Content: base64 }],
-            `Upload: ${fileName}`,
-            undefined,
-            () => canceledUploads.has(uploadTask.id)
-          );
-
-          // Store in database as single chunk
-          console.log(`[Process] 💾 Writing chunk to SQLite Database...`);
-          upsertNodeWithChunks(
-            nodeId,
-            parentId,
-            fileName,
-            stats.size,
-            mimeType,
-            [{
-              sequenceIndex: 0,
-              chunkSize: stats.size,
-              gitBlobSha: results[0].blobSha,
-              rawUrl: results[0].rawUrl,
-              sha256Hash: sha256,
-            }]
-          );
-        }
-
-        console.log(`[Process] 🌟 Upload Complete for ${fileName}!`);
-        uploadTask.status = 'done';
-        uploadTask.progress = 100;
-        uploadTask.chunksCompleted = uploadTask.chunksTotal;
+      if (needsChunking(filePath)) {
+        const chunkInfos = calculateChunks(filePath);
+        uploadTask.chunksTotal = chunkInfos.length;
+        uploadTask.status = 'chunking';
         sendProgress();
-        canceledUploads.delete(uploadTask.id);
-      } catch (err: unknown) {
-        if (err instanceof Error && err.message === 'STATUS_CANCELLED') {
-          console.log(`[Process] ❌ Upload marked as aborted.`);
-          uploadTask.status = 'error';
-          uploadTask.error = 'Cancelled by user';
-        } else {
-          console.error(`[Process] 💥 Critical Upload Error:`, err);
-          uploadTask.status = 'error';
-          uploadTask.error = err instanceof Error ? err.message : 'Unknown error';
-        }
+
+        uploadTask.status = 'uploading';
         sendProgress();
-        canceledUploads.delete(uploadTask.id);
-        continue;
+
+        let completed = 0;
+        const lazyChunks = chunkInfos.map((chunkInfo, idx) => ({
+          fileName: `${nodeId}_${chunkInfo.fileName}`,
+          size: chunkInfo.size,
+          read: async () => {
+            const buffer = await readChunk(filePath, chunkInfo);
+            return {
+              base64Content: buffer.toString('base64'),
+              sha256: computeSHA256FromBuffer(buffer)
+            };
+          }
+        }));
+
+        const results = await atomicUpload(
+          owner, repo, branch,
+          'storage/',
+          lazyChunks,
+          `Upload: ${fileName}`,
+          () => {
+            completed++;
+            uploadTask.chunksCompleted = completed;
+            uploadTask.progress = Math.round((completed / uploadTask.chunksTotal) * 100);
+            sendProgress();
+          },
+          () => {
+            const cancelled = canceledUploads.has(uploadTask.id);
+            if (cancelled) console.log(`[Process] 🛑 Aborting pipeline since upload was actively cancelled by user!`);
+            return cancelled;
+          }
+        );
+
+        uploadTask.status = 'committing';
+        sendProgress();
+
+        upsertNodeWithChunks(
+          nodeId,
+          parentId,
+          fileName,
+          stats.size,
+          mimeType,
+          results.map((r, i) => ({
+            sequenceIndex: i,
+            chunkSize: lazyChunks[i].size,
+            gitBlobSha: r.blobSha,
+            rawUrl: r.rawUrl,
+            sha256Hash: r.sha256Hash || '',
+          }))
+        );
+      } else {
+        uploadTask.status = 'uploading';
+        sendProgress();
+
+        const buffer = fs.readFileSync(filePath);
+        const base64 = buffer.toString('base64');
+        const sha256 = computeSHA256FromBuffer(buffer);
+
+        const results = await atomicUpload(
+          owner, repo, branch,
+          'storage/',
+          [{ fileName: `${nodeId}_${fileName}`, base64Content: base64 }],
+          `Upload: ${fileName}`,
+          undefined,
+          () => canceledUploads.has(uploadTask.id)
+        );
+
+        upsertNodeWithChunks(
+          nodeId,
+          parentId,
+          fileName,
+          stats.size,
+          mimeType,
+          [{
+            sequenceIndex: 0,
+            chunkSize: stats.size,
+            gitBlobSha: results[0].blobSha,
+            rawUrl: results[0].rawUrl,
+            sha256Hash: sha256,
+          }]
+        );
       }
+
+      uploadTask.status = 'done';
+      uploadTask.progress = 100;
+      uploadTask.chunksCompleted = uploadTask.chunksTotal;
+      sendProgress();
+      canceledUploads.delete(uploadTask.id);
+    } catch (err: any) {
+      console.error(`[Process] Upload Error for ${fileName}:`, err);
+      uploadTask.status = 'error';
+      uploadTask.error = err?.message || 'Unknown error';
+      sendProgress();
+      canceledUploads.delete(uploadTask.id);
+      throw err;
+    }
+  }
+
+  async function uploadFolderRecursive(localPath: string, parentId: string | null) {
+    const stats = fs.statSync(localPath);
+    const name = path.basename(localPath);
+
+    if (stats.isDirectory()) {
+      const { insertNode, findFileNode } = await import('./services/database');
+      
+      // 1. Create/Find the folder in the virtual drive
+      let folderNode = findFileNode(parentId, name);
+      if (!folderNode) {
+        folderNode = insertNode(parentId, name, 'DIRECTORY', 0, null);
+      }
+
+      // 2. Recurse into children
+      const children = fs.readdirSync(localPath);
+      for (const child of children) {
+        await uploadFolderRecursive(path.join(localPath, child), folderNode.node_id);
+      }
+    } else {
+      // 3. Upload file
+      await uploadSingleFile(localPath, parentId);
+    }
+  }
+
+  ipcMain.handle('drive:upload-files', async (_event, filePaths: string[], parentId: string | null) => {
+    for (const filePath of filePaths) {
+      try {
+        await uploadSingleFile(filePath, parentId);
+      } catch (err) {
+        // Continue with next file even if one fails
+        console.error(`Skipping file ${filePath} due to error`);
+      }
+    }
+  });
+
+  ipcMain.handle('drive:upload-folder', async (_event, parentId: string | null) => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      properties: ['openDirectory'],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) return;
+
+    for (const folderPath of result.filePaths) {
+      await uploadFolderRecursive(folderPath, parentId);
     }
   });
 

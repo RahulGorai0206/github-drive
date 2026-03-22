@@ -169,7 +169,7 @@ interface FileGridProps {
 }
 
 export function FileGrid({ onRename, onOpenNewFolder }: FileGridProps) {
-  const { children, navigateTo, viewMode, isLoading, openMediaPlayer, openTextViewer, authStatus, openFileDialog } = useDrive();
+  const { children, navigateTo, viewMode, isLoading, openMediaPlayer, openTextViewer, authStatus, openFileDialog, uploadFolder, currentDirId } = useDrive();
 
   const handleDoubleClick = useCallback((node: VirtualNode) => {
     if (node.entity_type === 'DIRECTORY') {
@@ -282,6 +282,9 @@ export function FileGrid({ onRename, onOpenNewFolder }: FileGridProps) {
           <ContextMenuItem onClick={onOpenNewFolder} className="gap-3 cursor-pointer">
             <FolderPlus className="h-4 w-4" /> New Folder
           </ContextMenuItem>
+          <ContextMenuItem onClick={() => uploadFolder(currentDirId)} className="gap-3 cursor-pointer">
+            <FolderPlus className="h-4 w-4" /> Upload Folder
+          </ContextMenuItem>
           <ContextMenuItem onClick={openFileDialog} className="gap-3 cursor-pointer">
             <Upload className="h-4 w-4" /> Upload File
           </ContextMenuItem>
@@ -350,6 +353,9 @@ export function FileGrid({ onRename, onOpenNewFolder }: FileGridProps) {
       <ContextMenuContent className="w-56">
         <ContextMenuItem onClick={onOpenNewFolder} className="gap-3 cursor-pointer">
           <FolderPlus className="h-4 w-4" /> New Folder
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => uploadFolder(currentDirId)} className="gap-3 cursor-pointer">
+          <FolderPlus className="h-4 w-4" /> Upload Folder
         </ContextMenuItem>
         <ContextMenuItem onClick={openFileDialog} className="gap-3 cursor-pointer">
           <Upload className="h-4 w-4" /> Upload File

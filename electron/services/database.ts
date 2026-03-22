@@ -234,3 +234,18 @@ export function searchNodes(query: string): Array<VirtualNode & { parent_path: s
     LIMIT 50
   `).all(searchTerm) as Array<VirtualNode & { parent_path: string }>;
 }
+export function getDescendantFiles(nodeId: string): VirtualNode[] {
+  return db.prepare(`
+    WITH RECURSIVE
+      descendants(id) AS (
+        SELECT node_id FROM Virtual_Nodes WHERE parent_id = ?
+        UNION ALL
+        SELECT vn.node_id
+        FROM Virtual_Nodes vn
+        JOIN descendants d ON vn.parent_id = d.id
+      )
+    SELECT * FROM Virtual_Nodes 
+    WHERE node_id IN (SELECT id FROM descendants)
+    AND entity_type = 'FILE'
+  `).all(nodeId) as VirtualNode[];
+}

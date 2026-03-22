@@ -25,7 +25,7 @@ interface HeaderProps {
 }
 
 export function Header({ onOpenNewFolder }: HeaderProps) {
-  const { breadcrumb, navigateTo, viewMode, setViewMode, openFileDialog } = useDrive();
+  const { breadcrumb, navigateTo, viewMode, setViewMode, openFileDialog, uploadFolder } = useDrive();
 
   return (
     <div className="flex items-center justify-between gap-4 px-6 h-16 border-b border-border bg-background/50 backdrop-blur-sm z-50 sticky top-0">
@@ -73,6 +73,10 @@ export function Header({ onOpenNewFolder }: HeaderProps) {
             <DropdownMenuItem onClick={onOpenNewFolder} className="gap-3 cursor-pointer">
               <FolderPlus className="h-4 w-4" />
               New Folder
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => uploadFolder(breadcrumb[breadcrumb.length - 1]?.node_id || null)} className="gap-3 cursor-pointer">
+              <FolderPlus className="h-4 w-4" />
+              Upload Folder
             </DropdownMenuItem>
             <DropdownMenuItem onClick={openFileDialog} className="gap-3 cursor-pointer">
               <Upload className="h-4 w-4" />

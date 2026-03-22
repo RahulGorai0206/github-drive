@@ -95,6 +95,7 @@ export interface ElectronAPI {
   getChildren: (parentId: string | null) => Promise<VirtualNode[]>;
   getNode: (nodeId: string) => Promise<VirtualNode | null>;
   uploadFiles: (filePaths: string[], parentId: string | null) => Promise<void>;
+  uploadFolder: (parentId: string | null) => Promise<void>;
   createFolder: (name: string, parentId: string | null) => Promise<VirtualNode>;
   deleteNode: (nodeId: string) => Promise<void>;
   downloadFile: (nodeId: string) => Promise<string>; // returns saved path
