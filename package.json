@@ -2,6 +2,8 @@
   "name": "github-app",
   "version": "0.1.0",
   "private": true,
+  "author": "Rahul Gorai <rahulgorai0206@gmail.com>",
+  "description": "Next.js + Electron application for GitHub Drive management.",
   "main": "electron/dist/main.js",
   "scripts": {
     "dev:next": "next dev",
