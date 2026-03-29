@@ -50,7 +50,9 @@
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "public/icon.ico",
       "uninstallerIcon": "public/icon.ico",
-      "license": "license.txt"
+      "license": "license.txt",
+      "include": "installer.nsh",
+      "unicode": true
     },
     "mac": {
       "target": [
