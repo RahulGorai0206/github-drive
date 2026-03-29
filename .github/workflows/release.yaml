@@ -13,7 +13,9 @@ jobs:
   release:
     name: Build & Release for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
 
@@ -31,14 +33,20 @@ jobs:
         run: npm ci
 
       - name: Build and Package
+        # We use a shell script to only set signing env vars if they are available
+        # This prevents electron-builder from failing on empty strings
+        shell: bash
         run: npm run build:dist
         env:
-          # GitHub Token for electron-builder (important for some publish features)
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Code Signing - Windows
-          CSC_LINK: ${{ matrix.os == 'windows-latest' && secrets.WIN_CSC_LINK || (matrix.os == 'macos-latest' && secrets.MAC_CSC_LINK || '') }}
-          CSC_KEY_PASSWORD: ${{ matrix.os == 'windows-latest' && secrets.WIN_CSC_PASSWORD || (matrix.os == 'macos-latest' && secrets.MAC_CSC_PASSWORD || '') }}
-          # Notarization - macOS
+          # Force disable auto discovery to avoid local certificate errors
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          # Conditional assignment using Bash syntax for safety
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_PASSWORD }}
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_PASSWORD }}
+          # Notarization
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

@@ -26,7 +26,10 @@
       "out/**/*",
       "electron/dist/**/*",
       "public/**/*",
-      "package.json"
+      "package.json",
+      "!release/**/*",
+      "!.git/**/*",
+      "!node_modules/**/*"
     ],
     "win": {
       "target": "nsis",
@@ -44,7 +47,22 @@
         "dmg",
         "zip"
       ],
-      "icon": "public/icon.png"
+      "icon": "public/icon.png",
+      "category": "public.app-category.utilities"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
     },
     "linux": {
       "target": [
